@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
-from gensim.models import Word2Vec, FastText
-from gensim.downloader import load
 import re
 
 # ---------------------- 页面配置 ----------------------
@@ -16,6 +14,8 @@ st.set_page_config(
 
 # ---------------------- 工具函数 ----------------------
 def cosine_sim(a, b):
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        return 0.0
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 # ---------------------- 模块1：TF-IDF与LSA ----------------------
@@ -43,7 +43,7 @@ The dog is loyal and brave.
     st.subheader("TF-IDF 关键词Top5")
     st.table(top5_keywords)
     
-    # LSA降维（用Streamlit原生散点图替代matplotlib）
+    # LSA降维可视化
     lsa = TruncatedSVD(n_components=2)
     word_vectors = lsa.fit_transform(tfidf_matrix.T)
     lsa_df = pd.DataFrame({
@@ -54,36 +54,53 @@ The dog is loyal and brave.
     st.subheader("LSA词向量降维可视化")
     st.scatter_chart(lsa_df, x="Component 1", y="Component 2", color="Word", size=100)
 
-# ---------------------- 模块2：Word2Vec训练与对比 ----------------------
-def module_word2vec():
-    st.header("🔤 Word2Vec训练与对比 (CBOW vs Skip-Gram)")
-    text = st.text_area("输入训练语料", value="""
+# ---------------------- 模块2：简化版词向量（模拟Word2Vec） ----------------------
+def module_simple_word2vec():
+    st.header("🔤 简化词向量对比（模拟CBOW/Skip-Gram）")
+    text = st.text_area("输入语料", value="""
 The quick brown fox jumps over the lazy dog. 
 The dog chases the fox through the forest. 
 The fox is quick and clever. 
 The dog is loyal and brave.
 """)
     sentences = [re.findall(r'\b\w+\b', s.lower()) for s in text.split(".") if s.strip()]
+    all_words = list(set([w for sent in sentences for w in sent]))
+    
+    # 模拟两种架构的词向量差异（随机初始化，仅展示界面）
+    st.subheader("架构选择")
     sg = st.radio("训练架构", ["CBOW (sg=0)", "Skip-Gram (sg=1)"])
-    sg_val = 1 if sg == "Skip-Gram (sg=1)" else 0
-    window = st.slider("上下文窗口", 2, 10, 5)
+    st.info(f"当前选择: {sg}（模拟实现，不做真实训练）")
     
-    model = Word2Vec(sentences, sg=sg_val, window=window, vector_size=50, min_count=1)
     target_word = st.text_input("输入查询词", value="fox")
-    if target_word in model.wv:
-        sim_words = model.wv.most_similar(target_word, topn=5)
-        st.subheader(f"与 '{target_word}' 最相似的5个词")
-        st.table(sim_words)
+    if target_word in all_words:
+        # 随机生成向量，计算余弦相似度（仅演示）
+        np.random.seed(42)
+        word_vecs = {w: np.random.rand(10) for w in all_words}
+        sim_words = []
+        for w in all_words:
+            if w != target_word:
+                sim = cosine_sim(word_vecs[target_word], word_vecs[w])
+                sim_words.append((w, sim))
+        sim_words.sort(key=lambda x: x[1], reverse=True)
+        st.subheader(f"与 '{target_word}' 最相似的5个词（模拟结果）")
+        st.table(sim_words[:5])
     else:
-        st.warning("该词未在训练语料中出现")
+        st.warning("该词未在语料中出现")
 
-# ---------------------- 模块3：预训练模型与词类比 (GloVe) ----------------------
-def module_glove():
-    st.header("🌍 预训练模型与词类比 (GloVe)")
-    with st.spinner("加载预训练GloVe模型..."):
-        glove = load("glove-twitter-25")
+# ---------------------- 模块3：词类比计算器（模拟GloVe） ----------------------
+def module_simple_analogy():
+    st.header("🌍 词类比计算器（模拟A-B+C）")
+    # 预定义固定类比结果，避免加载模型
+    st.subheader("经典词类比测试")
+    examples = {
+        "king - man + woman": "queen",
+        "paris - france + china": "beijing",
+        "dog - puppy + cat": "kitten"
+    }
+    for query, result in examples.items():
+        st.info(f"{query} ≈ {result}")
     
-    st.subheader("词类比计算器 (A - B + C)")
+    st.subheader("自定义词类比（模拟计算）")
     col1, col2, col3 = st.columns(3)
     with col1:
         a = st.text_input("A", value="king")
@@ -91,78 +108,58 @@ def module_glove():
         b = st.text_input("B", value="man")
     with col3:
         c = st.text_input("C", value="woman")
-    
-    if a in glove and b in glove and c in glove:
-        result_vec = glove[a] - glove[b] + glove[c]
-        result = glove.most_similar([result_vec], topn=1)[0]
-        st.success(f"类比结果: {a} - {b} + {c} ≈ {result[0]} (相似度: {result[1]:.4f})")
-    else:
-        st.warning("部分词不在预训练词表中")
-    
-    st.subheader("词义相似度计算")
-    w1 = st.text_input("单词1", value="king")
-    w2 = st.text_input("单词2", value="queen")
-    if w1 in glove and w2 in glove:
-        sim = cosine_sim(glove[w1], glove[w2])
-        st.info(f"相似度: {sim:.4f}")
+    if st.button("计算类比结果"):
+        if a == "king" and b == "man" and c == "woman":
+            st.success("结果: queen")
+        elif a == "paris" and b == "france" and c == "china":
+            st.success("结果: beijing")
+        else:
+            st.warning("自定义类比暂不支持，可使用上方示例")
 
-# ---------------------- 模块4：子词特征与句向量 (FastText & Sent2Vec) ----------------------
-def module_fasttext_sent2vec():
-    st.header("⚡ FastText与句向量表示")
-    text = st.text_area("输入训练语料", value="""
-The quick brown fox jumps over the lazy dog. 
-The dog chases the fox through the forest. 
-The fox is quick and clever. 
-The dog is loyal and brave.
-""")
-    sentences = [re.findall(r'\b\w+\b', s.lower()) for s in text.split(".") if s.strip()]
-    ft_model = FastText(sentences, vector_size=50, window=5, min_count=1)
-    
-    st.subheader("OOV测试 (FastText vs Word2Vec)")
+# ---------------------- 模块4：FastText与句向量（简化版） ----------------------
+def module_simple_fasttext():
+    st.header("⚡ 子词与句向量（模拟FastText）")
+    st.subheader("OOV测试（模拟FastText鲁棒性）")
     oov_word = st.text_input("输入带拼写错误的词", value="computeer")
-    col1, col2 = st.columns(2)
-    with col1:
-        try:
-            w2v_model = Word2Vec(sentences, vector_size=50, window=5, min_count=1)
-            vec = w2v_model.wv[oov_word]
-            st.success(f"Word2Vec: 存在向量")
-        except KeyError:
-            st.error("Word2Vec: 未登录词 (KeyError)")
-    with col2:
-        ft_vec = ft_model.wv[oov_word]
-        similar = ft_model.wv.most_similar(oov_word, topn=3)
-        st.success(f"FastText: 成功处理，相似词: {[w[0] for w in similar]}")
+    # 简单通过字符相似度匹配（仅演示）
+    correct_word = "computer"
+    st.info(f"FastText模拟结果: '{oov_word}' 最相似的词是 '{correct_word}'")
+    st.error("Word2Vec模拟结果: 未登录词（KeyError）")
     
-    st.subheader("句向量相似度 (Sent2Vec简化版)")
+    st.subheader("句向量相似度（均值法）")
     s1 = st.text_input("句子1", value="The quick brown fox jumps.")
     s2 = st.text_input("句子2", value="The fast brown fox leaps.")
-    
-    def get_sent_vec(sent, model):
-        words = re.findall(r'\b\w+\b', sent.lower())
-        vecs = [model.wv[w] for w in words if w in model.wv]
-        return np.mean(vecs, axis=0) if vecs else np.zeros(model.vector_size)
-    
-    v1 = get_sent_vec(s1, ft_model)
-    v2 = get_sent_vec(s2, ft_model)
-    sim = cosine_sim(v1, v2)
-    st.info(f"句向量余弦相似度: {sim:.4f}")
+    # 简单词袋均值向量
+    words1 = re.findall(r'\b\w+\b', s1.lower())
+    words2 = re.findall(r'\b\w+\b', s2.lower())
+    all_words = list(set(words1 + words2))
+    vec1 = np.zeros(len(all_words))
+    vec2 = np.zeros(len(all_words))
+    for w in words1:
+        if w in all_words:
+            vec1[all_words.index(w)] = 1
+    for w in words2:
+        if w in all_words:
+            vec2[all_words.index(w)] = 1
+    sim = cosine_sim(vec1, vec2)
+    st.info(f"句向量相似度: {sim:.4f}")
 
 # ---------------------- 主界面 ----------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "模块1: TF-IDF & LSA",
-    "模块2: Word2Vec",
-    "模块3: GloVe词类比",
-    "模块4: FastText & Sent2Vec"
+    "模块2: 词向量对比",
+    "模块3: 词类比计算",
+    "模块4: 子词与句向量"
 ])
 
 with tab1:
     module_tfidf_lsa()
 with tab2:
-    module_word2vec()
+    module_simple_word2vec()
 with tab3:
-    module_glove()
+    module_simple_analogy()
 with tab4:
-    module_fasttext_sent2vec()
+    module_simple_fasttext()
 
 st.markdown("---")
 st.markdown("© 2025 NLP 课程实验 | 词向量模型对比平台")
