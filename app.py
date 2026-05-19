@@ -1,178 +1,168 @@
-
 import streamlit as st
-from transformers import pipeline
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD
+from gensim.models import Word2Vec, FastText
+from gensim.downloader import load
+import re
 
 # ---------------------- 页面配置 ----------------------
 st.set_page_config(
-    page_title="机器翻译对比与评测系统",
-    page_icon="🌐",
+    page_title="词向量模型对比平台",
+    page_icon="📊",
     layout="wide"
 )
 
+# ---------------------- 工具函数 ----------------------
+def cosine_sim(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-# ---------------------- 缓存模型加载 ----------------------
-@st.cache_resource(show_spinner="正在加载翻译模型...")
-def load_translator():
-    """加载 Hugging Face 的英译中模型"""
-    translator = pipeline(
-        "translation_en_to_zh",
-        model="Helsinki-NLP/opus-mt-en-zh",
-        device=-1  # 使用 CPU，避免无 GPU 报错
-    )
-    return translator
+# ---------------------- 模块1：TF-IDF与LSA ----------------------
+def module_tfidf_lsa():
+    st.header("📊 传统统计模型 (TF-IDF & LSA/A)")
+    text = st.text_area("输入英文语料", value="""
+The quick brown fox jumps over the lazy dog. 
+The dog chases the fox through the forest. 
+The fox is quick and clever. 
+The dog is loyal and brave.
+""")
+    sentences = [s.strip() for s in text.split(".") if s.strip()]
+    if not sentences:
+        st.warning("请输入有效语料")
+        return
+    
+    # TF-IDF
+    tfidf = TfidfVectorizer()
+    tfidf_matrix = tfidf.fit_transform(sentences)
+    keywords = tfidf.get_feature_names_out()
+    scores = np.asarray(tfidf_matrix.sum(axis=0)).flatten()
+    top5_idx = scores.argsort()[-5:][::-1]
+    top5_keywords = [(keywords[i], scores[i]) for i in top5_idx]
+    
+    st.subheader("TF-IDF 关键词Top5")
+    st.table(top5_keywords)
+    
+    # LSA降维可视化
+    lsa = TruncatedSVD(n_components=2)
+    lsa_vectors = lsa.fit_transform(tfidf_matrix)
+    word_vectors = lsa.components_.T
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(word_vectors[:, 0], word_vectors[:, 1], c='blue')
+    for i, word in enumerate(keywords):
+        ax.annotate(word, (word_vectors[i, 0], word_vectors[i, 1]))
+    st.pyplot(fig)
 
+# ---------------------- 模块2：Word2Vec训练与对比 ----------------------
+def module_word2vec():
+    st.header("🔤 Word2Vec训练与对比 (CBOW vs Skip-Gram)")
+    text = st.text_area("输入训练语料", value="""
+The quick brown fox jumps over the lazy dog. 
+The dog chases the fox through the forest. 
+The fox is quick and clever. 
+The dog is loyal and brave.
+""")
+    sentences = [re.findall(r'\b\w+\b', s.lower()) for s in text.split(".") if s.strip()]
+    sg = st.radio("训练架构", ["CBOW (sg=0)", "Skip-Gram (sg=1)"])
+    sg_val = 1 if sg == "Skip-Gram (sg=1)" else 0
+    window = st.slider("上下文窗口", 2, 10, 5)
+    
+    model = Word2Vec(sentences, sg=sg_val, window=window, vector_size=50, min_count=1)
+    target_word = st.text_input("输入查询词", value="fox")
+    if target_word in model.wv:
+        sim_words = model.wv.most_similar(target_word, topn=5)
+        st.subheader(f"与 '{target_word}' 最相似的5个词")
+        st.table(sim_words)
+    else:
+        st.warning("该词未在训练语料中出现")
 
-translator = load_translator()
+# ---------------------- 模块3：预训练模型与词类比 (GloVe) ----------------------
+def module_glove():
+    st.header("🌍 预训练模型与词类比 (GloVe)")
+    with st.spinner("加载预训练GloVe模型..."):
+        glove = load("glove-twitter-25")
+    
+    st.subheader("词类比计算器 (A - B + C)")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        a = st.text_input("A", value="king")
+    with col2:
+        b = st.text_input("B", value="man")
+    with col3:
+        c = st.text_input("C", value="woman")
+    
+    if a in glove and b in glove and c in glove:
+        result_vec = glove[a] - glove[b] + glove[c]
+        result = glove.most_similar([result_vec], topn=1)[0]
+        st.success(f"类比结果: {a} - {b} + {c} ≈ {result[0]} (相似度: {result[1]:.4f})")
+    else:
+        st.warning("部分词不在预训练词表中")
+    
+    st.subheader("词义相似度计算")
+    w1 = st.text_input("单词1", value="king")
+    w2 = st.text_input("单词2", value="queen")
+    if w1 in glove and w2 in glove:
+        sim = cosine_sim(glove[w1], glove[w2])
+        st.info(f"相似度: {sim:.4f}")
 
-# ---------------------- 基于规则的翻译词典 ----------------------
-# 基础英中词典，模拟早期机器翻译
-basic_dict = {
-    "I": "我",
-    "you": "你",
-    "he": "他",
-    "she": "她",
-    "it": "它",
-    "we": "我们",
-    "they": "他们",
-    "am": "是",
-    "is": "是",
-    "are": "是",
-    "was": "是",
-    "were": "是",
-    "have": "有",
-    "has": "有",
-    "do": "做",
-    "does": "做",
-    "did": "做",
-    "go": "去",
-    "went": "去",
-    "eat": "吃",
-    "ate": "吃",
-    "drink": "喝",
-    "drank": "喝",
-    "run": "跑",
-    "ran": "跑",
-    "walk": "走",
-    "walked": "走",
-    "like": "喜欢",
-    "likes": "喜欢",
-    "love": "爱",
-    "loves": "爱",
-    "cat": "猫",
-    "dog": "狗",
-    "rain": "下雨",
-    "cats": "猫",
-    "dogs": "狗",
-    "raining": "下雨",
-    "raining cats and dogs": "下猫下狗"  # 俚语的逐词保留
-}
+# ---------------------- 模块4：子词特征与句向量 (FastText & Sent2Vec) ----------------------
+def module_fasttext_sent2vec():
+    st.header("⚡ FastText与句向量表示")
+    text = st.text_area("输入训练语料", value="""
+The quick brown fox jumps over the lazy dog. 
+The dog chases the fox through the forest. 
+The fox is quick and clever. 
+The dog is loyal and brave.
+""")
+    sentences = [re.findall(r'\b\w+\b', s.lower()) for s in text.split(".") if s.strip()]
+    ft_model = FastText(sentences, vector_size=50, window=5, min_count=1)
+    
+    st.subheader("OOV测试 (FastText vs Word2Vec)")
+    oov_word = st.text_input("输入带拼写错误的词", value="computeer")
+    col1, col2 = st.columns(2)
+    with col1:
+        try:
+            w2v_model = Word2Vec(sentences, vector_size=50, window=5, min_count=1)
+            vec = w2v_model.wv[oov_word]
+            st.success(f"Word2Vec: 存在向量")
+        except KeyError:
+            st.error("Word2Vec: 未登录词 (KeyError)")
+    with col2:
+        ft_vec = ft_model.wv[oov_word]
+        similar = ft_model.wv.most_similar(oov_word, topn=3)
+        st.success(f"FastText: 成功处理，相似词: {[w[0] for w in similar]}")
+    
+    st.subheader("句向量相似度 (Sent2Vec简化版)")
+    s1 = st.text_input("句子1", value="The quick brown fox jumps.")
+    s2 = st.text_input("句子2", value="The fast brown fox leaps.")
+    
+    def get_sent_vec(sent, model):
+        words = re.findall(r'\b\w+\b', sent.lower())
+        vecs = [model.wv[w] for w in words if w in model.wv]
+        return np.mean(vecs, axis=0) if vecs else np.zeros(model.vector_size)
+    
+    v1 = get_sent_vec(s1, ft_model)
+    v2 = get_sent_vec(s2, ft_model)
+    sim = cosine_sim(v1, v2)
+    st.info(f"句向量余弦相似度: {sim:.4f}")
 
-
-def rule_based_translate(sentence: str) -> str:
-    """基于词典的逐词直译"""
-    words = sentence.strip().split()
-    translated = []
-    for word in words:
-        # 处理标点
-        clean_word = word.strip(".,!?").lower()
-        if clean_word in basic_dict:
-            translated.append(basic_dict[clean_word])
-        else:
-            # 不在词典里的词直接保留
-            translated.append(word)
-    return " ".join(translated)
-
-
-# ---------------------- 页面内容 ----------------------
-st.title("🌐 机器翻译对比与评测系统")
-st.markdown("---")
-
-# 分三个模块的 Tab
-tab1, tab2, tab3 = st.tabs([
-    "模块1：神经机器翻译引擎",
-    "模块2：直译 vs. 意译对比",
-    "模块3：BLEU 自动评测"
+# ---------------------- 主界面 ----------------------
+tab1, tab2, tab3, tab4 = st.tabs([
+    "模块1: TF-IDF & LSA",
+    "模块2: Word2Vec",
+    "模块3: GloVe词类比",
+    "模块4: FastText & Sent2Vec"
 ])
 
-# ---------------------- 模块1：神经机器翻译引擎 ----------------------
 with tab1:
-    st.header("🧠 神经机器翻译引擎 (NMT Engine)")
-    st.markdown("输入英文句子，体验基于 Transformer 的英译中效果。")
-
-    # 输入框
-    en_text = st.text_area(
-        "请输入英文句子：",
-        value="It rains cats and dogs.",
-        height=150
-    )
-
-    if st.button("开始翻译", key="btn1"):
-        with st.spinner("模型正在翻译中..."):
-            # 调用翻译模型
-            result = translator(en_text)[0]["translation_text"]
-            st.success("翻译完成！")
-            st.subheader("译文结果：")
-            st.info(result)
-
-# ---------------------- 模块2：直译 vs. 意译对比 ----------------------
+    module_tfidf_lsa()
 with tab2:
-    st.header("⚖️ 基于规则的直译 vs. 神经网络意译")
-    st.markdown("对比两种翻译范式的差异，观察基于规则翻译的局限性。")
-
-    # 输入框
-    en_text2 = st.text_area(
-        "请输入英文句子：",
-        value="It rains cats and dogs.",
-        height=150
-    )
-
-    if st.button("开始对比", key="btn2"):
-        with st.spinner("正在对比两种翻译结果..."):
-            # 1. 基于规则的直译
-            rule_trans = rule_based_translate(en_text2)
-            # 2. 神经机器翻译
-            nmt_trans = translator(en_text2)[0]["translation_text"]
-
-            # 并排展示
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("基于规则的直译")
-                st.warning(rule_trans)
-            with col2:
-                st.subheader("神经网络意译")
-                st.success(nmt_trans)
-
-# ---------------------- 模块3：BLEU 自动评测 ----------------------
+    module_word2vec()
 with tab3:
-    st.header("📊 机器翻译质量自动评测 (BLEU Score)")
-    st.markdown("输入待评测译文和参考译文，自动计算 BLEU 分数（0~1，越高越接近参考译文）。")
+    module_glove()
+with tab4:
+    module_fasttext_sent2vec()
 
-    # 输入框
-    candidate_text = st.text_area("待评测译文（如 NMT 或直译结果）：", height=100)
-    reference_text = st.text_area("参考译文（人工翻译或标准译文）：", height=100)
-
-    if st.button("计算 BLEU 分数", key="btn3"):
-        if not candidate_text or not reference_text:
-            st.error("请输入待评测译文和参考译文！")
-        else:
-            # 分词
-            candidate = candidate_text.split()
-            reference = [reference_text.split()]  # 参考译文需要是列表的列表
-
-            # 计算 BLEU，带平滑函数避免零分
-            smoothie = SmoothingFunction().method4
-            bleu_score = sentence_bleu(reference, candidate, smoothing_function=smoothie)
-
-            st.success(f"BLEU 分数：{bleu_score:.4f}")
-            # 解释分数
-            if bleu_score >= 0.7:
-                st.info("✅ 译文质量优秀，与参考译文高度匹配")
-            elif bleu_score >= 0.4:
-                st.info("⚠️ 译文质量中等，部分内容与参考译文有差异")
-            else:
-                st.warning("❌ 译文质量较差，与参考译文差异较大")
-
-# ---------------------- 页脚 ----------------------
 st.markdown("---")
-st.markdown("© 2025 NLP 课程 Week 9 实验 | 机器翻译对比与评测系统")
+st.markdown("© 2025 NLP 课程实验 | 词向量模型对比平台")
