@@ -1,5 +1,6 @@
 streamlit
-spacy
-en-core-web-sm
+scikit-learn
+gensim
+numpy
+matplotlib
 pandas
-pyvis
