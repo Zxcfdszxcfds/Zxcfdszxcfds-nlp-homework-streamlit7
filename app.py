@@ -1,6 +1,6 @@
 import streamlit as st
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from gensim.models import Word2Vec, FastText
@@ -43,16 +43,16 @@ The dog is loyal and brave.
     st.subheader("TF-IDF 关键词Top5")
     st.table(top5_keywords)
     
-    # LSA降维可视化
+    # LSA降维（用Streamlit原生散点图替代matplotlib）
     lsa = TruncatedSVD(n_components=2)
-    lsa_vectors = lsa.fit_transform(tfidf_matrix)
-    word_vectors = lsa.components_.T
-    
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.scatter(word_vectors[:, 0], word_vectors[:, 1], c='blue')
-    for i, word in enumerate(keywords):
-        ax.annotate(word, (word_vectors[i, 0], word_vectors[i, 1]))
-    st.pyplot(fig)
+    word_vectors = lsa.fit_transform(tfidf_matrix.T)
+    lsa_df = pd.DataFrame({
+        "Word": keywords,
+        "Component 1": word_vectors[:, 0],
+        "Component 2": word_vectors[:, 1]
+    })
+    st.subheader("LSA词向量降维可视化")
+    st.scatter_chart(lsa_df, x="Component 1", y="Component 2", color="Word", size=100)
 
 # ---------------------- 模块2：Word2Vec训练与对比 ----------------------
 def module_word2vec():
